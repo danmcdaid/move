@@ -1,27 +1,41 @@
 #!/bin/bash
 
 # Directory to store downloaded .deb files
-DOWNLOAD_DIR="/tmp/apt-downloads"
-mkdir -p "$DOWNLOAD_DIR"
+DOWNLOAD_DIR="/var/cache/apt/archives"
 
 # Function to download a package from packages.debian.org
 download_package() {
-    local package=$1
-    
+    local url=$1
+    local filename=$(basename "$url")
+    local package_name=$(echo "$filename" | cut -d '_' -f 1)
+
+    # Construct the packages.debian.org URL
+    debian_url="https://packages.debian.org/bullseye/all/${package_name}/download"
+
+    # Fetch the download page
+    download_page=$(curl -s "$debian_url")
+
     # Extract the US HTTP mirror URL
-    deb_url=$(echo "$HTML_CONTENT" | grep -oP 'href="http://http\.us\.debian\.org/debian/pool/main/[^"]+\.deb"' | head -n 1 | sed 's/href="//;s/"$//')
-    
+    deb_url=$(echo "$download_page" | grep -oP 'href="http://http\.us\.debian\.org/debian/pool/main/[^"]+\.deb"' | head -n 1 | sed 's/href="//;s/"$//')
+
     if [ -n "$deb_url" ]; then
-        echo "Downloading $package from $deb_url"
-        wget -O "${DOWNLOAD_DIR}/$(basename $deb_url)" "$deb_url"
+        echo "Downloading $filename from $deb_url" >&2
+        if curl -s -o "${DOWNLOAD_DIR}/${filename}" "$deb_url"; then
+            echo "${DOWNLOAD_DIR}/${filename}"
+        else
+            echo "Failed to download $filename" >&2
+            exit 1
+        fi
     else
-        echo "Failed to find download URL for $package" >&2
-        return 1
+        echo "Failed to find download URL for $filename" >&2
+        exit 1
     fi
 }
 
 # Main script
-download_package "zsh-common"
+while read -r url
+do
+    download_package "$url"
+done
 
-# Print the directory containing downloads
-echo "Downloads are in $DOWNLOAD_DIR"
+exit 0
