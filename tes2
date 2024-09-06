@@ -1,0 +1,48 @@
+#!/bin/bash
+
+# This script intercepts apt download requests and fetches packages from packages.debian.org
+# It takes two arguments:
+# $1: The URL of the package to download (which we'll use to extract package information)
+# $2: The filename where the package should be saved
+
+if [ $# -ne 2 ]; then
+    echo "Usage: $0 <url> <output_file>" >&2
+    exit 1
+fi
+
+original_url="$1"
+output_file="$2"
+
+# Extract package name and version from the original URL
+package_info=$(echo "$original_url" | grep -oP '/pool/main/[^/]+/\K[^/]+/[^/]+_[^_]+_[^.]+\.deb')
+if [ -z "$package_info" ]; then
+    echo "Failed to extract package information from URL: $original_url" >&2
+    exit 1
+fi
+
+package_name=$(echo "$package_info" | cut -d'/' -f1)
+package_version=$(echo "$package_info" | grep -oP '[^/]+_\K[^_]+')
+package_arch=$(echo "$package_info" | grep -oP '[^_]+(?=\.deb)')
+
+# Construct the packages.debian.org URL
+debian_url="https://packages.debian.org/bullseye/${package_arch}/${package_name}/download"
+
+# Fetch the download page
+download_page=$(curl -s "$debian_url")
+
+# Extract the US HTTP mirror URL
+deb_url=$(echo "$download_page" | grep -oP 'href="http://http\.us\.debian\.org/debian/pool/main/[^"]+\.deb"' | head -n 1 | sed 's/href="//;s/"$//')
+
+if [ -n "$deb_url" ]; then
+    echo "Downloading $output_file from $deb_url" >&2
+    if curl -L -s -o "$output_file" "$deb_url"; then
+        echo "Successfully downloaded $output_file" >&2
+        exit 0
+    else
+        echo "Failed to download $output_file" >&2
+        exit 1
+    fi
+else
+    echo "Failed to find download URL for $output_file" >&2
+    exit 1
+fi
