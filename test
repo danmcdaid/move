@@ -1,27 +1,72 @@
 #!/bin/bash
 
-# Directory to store downloaded .deb files
-DOWNLOAD_DIR="/tmp/apt-downloads"
-mkdir -p "$DOWNLOAD_DIR"
+# This is a custom APT method to intercept download requests and fetch packages from packages.debian.org
 
-# Function to download a package from packages.debian.org
+# Function to handle the 'capabilities' command
+handle_capabilities() {
+    echo "Send-Config: true"
+    echo "Pipeline: true"
+    echo "Single-Instance: true"
+}
+
+# Function to handle the 'configuration' command
+handle_configuration() {
+    while read -r line; do
+        : # Do nothing, just read all lines
+    done
+}
+
+# Function to download a package
 download_package() {
-    local package=$1
-    
+    local uri="$1"
+    local filename="$2"
+
+    # Extract package name and version from the URI
+    local package_info=$(echo "$uri" | grep -oP '/pool/main/[^/]+/\K[^/]+/[^/]+_[^_]+_[^.]+\.deb')
+    if [ -z "$package_info" ]; then
+        echo "Status: Failure"
+        echo "Fail-Reason: Unable to extract package information from URI"
+        return
+    fi
+
+    local package_name=$(echo "$package_info" | cut -d'/' -f1)
+    local package_version=$(echo "$package_info" | grep -oP '[^/]+_\K[^_]+')
+    local package_arch=$(echo "$package_info" | grep -oP '[^_]+(?=\.deb)')
+
+    # Construct the packages.debian.org URL
+    local debian_url="https://packages.debian.org/bullseye/${package_arch}/${package_name}/download"
+
+    # Fetch the download page
+    local download_page=$(curl -s "$debian_url")
+
     # Extract the US HTTP mirror URL
-    deb_url=$(echo "$HTML_CONTENT" | grep -oP 'href="http://http\.us\.debian\.org/debian/pool/main/[^"]+\.deb"' | head -n 1 | sed 's/href="//;s/"$//')
-    
+    local deb_url=$(echo "$download_page" | grep -oP 'href="http://http\.us\.debian\.org/debian/pool/main/[^"]+\.deb"' | head -n 1 | sed 's/href="//;s/"$//')
+
     if [ -n "$deb_url" ]; then
-        echo "Downloading $package from $deb_url"
-        wget -O "${DOWNLOAD_DIR}/$(basename $deb_url)" "$deb_url"
+        if curl -L -s -o "$filename" "$deb_url"; then
+            echo "Status: Successful"
+            echo "Filename: $filename"
+        else
+            echo "Status: Failure"
+            echo "Fail-Reason: Download failed"
+        fi
     else
-        echo "Failed to find download URL for $package" >&2
-        return 1
+        echo "Status: Failure"
+        echo "Fail-Reason: Unable to find download URL"
     fi
 }
 
-# Main script
-download_package "zsh-common"
-
-# Print the directory containing downloads
-echo "Downloads are in $DOWNLOAD_DIR"
+# Main loop to handle APT commands
+while read -r command uri filename; do
+    case "$command" in
+        600)
+            handle_capabilities
+            ;;
+        601)
+            handle_configuration
+            ;;
+        *)
+            download_package "$uri" "$filename"
+            ;;
+    esac
+done
