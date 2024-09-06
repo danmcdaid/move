@@ -7,22 +7,13 @@ mkdir -p "$DOWNLOAD_DIR"
 # Function to download a package from packages.debian.org
 download_package() {
     local package=$1
-    local version=$2
-    local arch=$3
     
-    # Construct the URL
-    url="https://packages.debian.org/bullseye/amd64/${package}/download"
-    
-    # Use curl to fetch the download page
-    download_page=$(curl -s "$url")
-    
-    # Extract the actual .deb file URL
-    deb_url=$(echo "$download_page" | grep -oP 'href="\K[^"]+\.deb' | head -n 1)
+    # Extract the US HTTP mirror URL
+    deb_url=$(echo "$HTML_CONTENT" | grep -oP 'href="http://http\.us\.debian\.org/debian/pool/main/[^"]+\.deb"' | head -n 1 | sed 's/href="//;s/"$//')
     
     if [ -n "$deb_url" ]; then
         echo "Downloading $package from $deb_url"
-        curl -L -o "${DOWNLOAD_DIR}/${package}_${version}_${arch}.deb" "$deb_url"
-        echo "${DOWNLOAD_DIR}/${package}_${version}_${arch}.deb"
+        wget -O "${DOWNLOAD_DIR}/$(basename $deb_url)" "$deb_url"
     else
         echo "Failed to find download URL for $package" >&2
         return 1
@@ -30,10 +21,7 @@ download_package() {
 }
 
 # Main script
-while read -r package version arch
-do
-    download_package "$package" "$version" "$arch"
-done
+download_package "zsh-common"
 
 # Print the directory containing downloads
-echo "$DOWNLOAD_DIR"
+echo "Downloads are in $DOWNLOAD_DIR"
